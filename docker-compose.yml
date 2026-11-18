@@ -1,69 +1,136 @@
-# PeakCut on one server: the app, PostgreSQL, and Caddy for HTTPS.
-# Copy .env.example to .env, fill it in, then:  docker compose up -d --build
-# A server of its own: also set COMPOSE_PROFILES=own-https in .env. A shared server: see deploy/nginx-peakcut.conf.
+# ClippingShorts: multi-stream AI clipping.
+#   cp .env.example .env   # fill it in
+#   docker compose up -d --build
+#
+# Services: frontend (Next.js) -> backend (FastAPI) ; stream-worker, ai-worker, renderer.
+# Redis: by default the EXISTING Redis container on the external Docker network named in REDIS_NETWORK
+# (reached by its container name, never "localhost"). If you have no Redis yet:
+#   docker network create clippingshorts_redis
+#   and in .env: COMPOSE_PROFILES=bundled-redis  REDIS_NETWORK=clippingshorts_redis  REDIS_URL=redis://redis:6379/4
+# Database: SQLite on the data volume (no extra service). Set DATABASE_URL to use PostgreSQL instead.
+#
+# Memory/CPU limits below fit a 2 vCPU / 12 GB VM that also runs other apps. They are a safety net; the admission
+# controller inside the app keeps work below them. Measure with scripts/loadtest.py and tune for your machine.
+
+x-backend-env: &backend-env
+  env_file: .env
+  environment:
+    CLIPPINGSHORTS_DATA_DIR: /data/clippingshorts
+    GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/google_service_account
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
 services:
-  db:
-    image: postgres:16-alpine
-    mem_limit: ${PEAKCUT_DB_MEM_LIMIT:-0}
+  backend:
+    build: { context: ./backend }
+    image: clippingshorts-backend:local
+    <<: [*backend-env, *logging]
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: peakcut
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: peakcut
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+    networks: [internal, redis_net]
+    volumes: ["data:/data/clippingshorts"]
+    secrets: [google_service_account]
+    expose: ["8000"]
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 0.5
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U peakcut"]
-      interval: 10s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4)"]
+      interval: 20s
       timeout: 5s
-      retries: 6
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 15s
 
-  app:
-    build: .
+  stream-worker:
+    build:
+      context: ./workers/stream
+      additional_contexts: { backend_image: "service:backend" }
+    image: clippingshorts-stream-worker:local
+    <<: [*backend-env, *logging]
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://peakcut:${POSTGRES_PASSWORD}@db:5432/peakcut
-      PEAKCUT_PUBLIC_URL: https://${PEAKCUT_DOMAIN:?set PEAKCUT_DOMAIN in .env}
-      # On a server everyone signs in. Set PEAKCUT_ACCOUNTS=0 in .env only if the site is private to you.
-      PEAKCUT_ACCOUNTS: ${PEAKCUT_ACCOUNTS:-1}
-    volumes:
-      - data:/data
-      - ./secrets:/secrets:ro
-      - ./.git:/app/.git:ro            # only to tell which version is running, for the update notice
-    # Reachable from this server only. On a server that already has a web server, point that one at this port
-    # (see deploy/nginx-peakcut.conf). With the "own-https" profile, Caddy below is the web server instead.
-    ports: ["127.0.0.1:${PEAKCUT_BIND_PORT:-8765}:8765"]
-    # On a server shared with other apps, these keep PeakCut inside its own share (all unlimited by default):
-    # a memory ceiling with no swap, a processor ceiling, a lower turn at the processor when the server is busy,
-    # and "stop this one first" if the whole server ever runs out of memory.
-    mem_limit: ${PEAKCUT_MEM_LIMIT:-0}
-    memswap_limit: ${PEAKCUT_MEM_LIMIT:-0}
-    cpus: ${PEAKCUT_CPUS:-0}
-    cpu_shares: ${PEAKCUT_CPU_SHARES:-1024}
-    oom_score_adj: ${PEAKCUT_OOM_SCORE_ADJ:-0}
+    depends_on: { backend: { condition: service_healthy } }
+    networks: [internal, redis_net]
+    volumes: ["data:/data/clippingshorts"]
+    secrets: [google_service_account]
+    mem_limit: ${STREAM_WORKER_MEM_LIMIT:-1536m}
+    memswap_limit: ${STREAM_WORKER_MEM_LIMIT:-1536m}
+    cpus: ${STREAM_WORKER_CPUS:-1.5}
+    cpu_shares: 1536            # ingestion wins over rendering when the CPU is contended
+    oom_score_adj: -200         # if the kernel must kill something, prefer the renderer
+    stop_grace_period: 40s
 
-  # Only on a server PeakCut has to itself: add COMPOSE_PROFILES=own-https to .env and Caddy handles HTTPS.
-  caddy:
-    profiles: ["own-https"]
-    image: caddy:2
+  ai-worker:
+    build:
+      context: ./workers/ai
+      additional_contexts: { backend_image: "service:backend" }
+    image: clippingshorts-ai-worker:local
+    <<: [*backend-env, *logging]
     restart: unless-stopped
-    depends_on: [app]
-    ports: ["80:80", "443:443"]
+    depends_on: { backend: { condition: service_healthy } }
+    networks: [internal, redis_net]
+    volumes: ["data:/data/clippingshorts"]
+    secrets: [google_service_account]
+    mem_limit: ${AI_WORKER_MEM_LIMIT:-512m}
+    memswap_limit: ${AI_WORKER_MEM_LIMIT:-512m}
+    cpus: ${AI_WORKER_CPUS:-0.75}
+    stop_grace_period: 30s
+
+  renderer:
+    build:
+      context: ./workers/renderer
+      additional_contexts: { backend_image: "service:backend" }
+    image: clippingshorts-renderer:local
+    <<: [*backend-env, *logging]
+    restart: unless-stopped
+    depends_on: { backend: { condition: service_healthy } }
+    networks: [internal, redis_net]
+    volumes: ["data:/data/clippingshorts"]
+    secrets: [google_service_account]
+    mem_limit: ${RENDERER_MEM_LIMIT:-1024m}
+    memswap_limit: ${RENDERER_MEM_LIMIT:-1024m}
+    cpus: ${RENDERER_CPUS:-1.5}
+    cpu_shares: 512
+    oom_score_adj: 500
+    stop_grace_period: 60s
+
+  frontend:
+    build: { context: ./frontend }
+    image: clippingshorts-frontend:local
+    <<: *logging
+    restart: unless-stopped
+    depends_on: { backend: { condition: service_healthy } }
     environment:
-      PEAKCUT_DOMAIN: ${PEAKCUT_DOMAIN}
-    volumes:
-      # Caddyfile fetches certificates by itself; Caddyfile.origin uses a Cloudflare origin certificate from ./secrets
-      - ./deploy/${PEAKCUT_CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
-      - ./secrets:/secrets:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      BACKEND_URL: http://backend:8000
+    networks: [internal]
+    ports: ["${CLIPPINGSHORTS_FRONTEND_BIND:-0.0.0.0}:${CLIPPINGSHORTS_FRONTEND_PORT:-3100}:3000"]
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.5
+
+  # only when no Redis exists yet: COMPOSE_PROFILES=bundled-redis
+  redis:
+    profiles: ["bundled-redis"]
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    restart: unless-stopped
+    networks: [redis_net]           # never published on a host port
+    volumes: ["redis_data:/data"]
+    mem_limit: 320m
+
+networks:
+  internal:
+    name: clippingshorts_internal
+  redis_net:
+    external: true
+    name: ${REDIS_NETWORK:-redis_redis_network}
 
 volumes:
-  pgdata:
   data:
-  caddy_data:
-  caddy_config:
+    name: clippingshorts_data
+  redis_data:
+
+secrets:
+  google_service_account:
+    file: ${GOOGLE_SERVICE_ACCOUNT_FILE:?set GOOGLE_SERVICE_ACCOUNT_FILE in .env (path to the service-account JSON)}

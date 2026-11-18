@@ -7,20 +7,28 @@ secrets/
 *.key
 *service-account*.json
 *client_secret*.json
+*credentials*.json
+cookies*.txt
+storage/*
+!storage/.gitkeep
 data/
-storage.json
 *.db
 *.db-wal
 *.db-shm
 *.sqlite*
 *.log
+loadtest-results/
+
+# ---- frontend
+frontend/node_modules/
+frontend/.next/
+frontend/*.tsbuildinfo
 
 # ---- this computer only
 .claude/
 CLAUDE.local.md
 .vscode/
 .idea/
-*.bat
 Thumbs.db
 .DS_Store
 

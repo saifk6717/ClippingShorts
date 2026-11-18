@@ -1,0 +1,12 @@
+fastapi==0.162.5
+uvicorn==0.54.0
+httpx==0.28.1
+numpy==2.2.6
+SQLAlchemy==2.0.57
+psycopg[binary]==3.3.9
+redis==7.4.0
+psutil==7.1.0
+google-auth==2.40.3
+requests==2.32.4
+yt-dlp==2026.10.26
+pillow==11.3.0

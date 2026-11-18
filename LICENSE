@@ -1,6 +1,9 @@
 MIT License
 
-Copyright (c) 2026 PeakCut contributors
+Copyright (c) 2026 ClippingShorts contributors
+Portions copyright (c) 2026 PeakCut contributors (https://github.com/haziqahmedqasmi/PeakCut), used under the
+MIT License: the rolling-buffer capture approach, the Twitch chat reader, the two-judge prompt design and the
+word-by-word caption renderer were adapted from PeakCut.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +22,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+-------------------------------------------------------------------------------------------------------------------
+Caption fonts in backend/clippingshorts/fonts/ and frontend/public/fonts/ (Anton, Archivo Black, Poppins) are
+under the SIL Open Font License 1.1; the licence texts are next to the font files.

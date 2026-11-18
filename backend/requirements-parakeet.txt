@@ -1,0 +1,2 @@
+# Optional local speech fallback (Parakeet TDT 0.6B). Built in only with --build-arg INSTALL_PARAKEET=1.
+sherpa-onnx==2.0.1
