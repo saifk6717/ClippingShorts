@@ -140,6 +140,10 @@ class StreamWorker:
                 backoff = min(backoff * 1.6, 180)
                 continue
             self.title = res.title
+            if not self.st.creator_name and res.uploader:
+                # remember the real channel name (a YouTube watch link only gives us the video id)
+                self.st.creator_name = res.uploader[:120]
+                db.update(db.Stream, self.sid, creator_name=self.st.creator_name)
             if res.video_id and self.st.platform == "youtube":
                 self.video_id = res.video_id
                 if self.chat_conn and hasattr(self.chat_conn, "set_video"):

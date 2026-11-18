@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,7 +47,7 @@ def build_body(up: db.Upload) -> dict:
     tags = [t.lstrip("#") for t in (up.tags or []) if t][:15]
     desc = up.description or ""
     hashtags = " ".join(f"#{t}" for t in tags[:5])
-    if hashtags and hashtags not in desc:
+    if hashtags and not re.search(r"(^|\s)#\w", desc):
         desc = (desc + "\n\n" + hashtags).strip()
     status = {"privacyStatus": up.privacy, "selfDeclaredMadeForKids": False}
     if up.publish_at and up.publish_at > time.time() + 60:

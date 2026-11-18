@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import re
 import time
 import traceback
 from pathlib import Path
@@ -87,6 +88,28 @@ def queue_metadata(clip_id: str, auto_upload: str) -> None:
     rb.queue("highlight_eval").put({"kind": "metadata", "clip_id": clip_id, "auto_upload": auto_upload}, force=True)
 
 
+def post_text(clip, meta: dict, default_hashtags=None) -> tuple[str, str, list]:
+    """Title, description and tags of a Short. The description always ends with its hashtags (the fixed ones from
+    DEFAULT_HASHTAGS / the stream first, then Gemini's) and the credit line."""
+    fixed = default_hashtags if default_hashtags is not None else settings.default_hashtags
+    if isinstance(fixed, str):
+        fixed = fixed.split(",")
+    tags, seen = [], set()
+    for t in list(fixed) + list(meta.get("hashtags") or clip.hashtags or []) + ["shorts"]:
+        t = re.sub(r"[^\w]", "", str(t).lstrip("#"))[:30]
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            tags.append(t)
+    title = meta.get("title") or ("" if (clip.title or "").startswith(("audio jump", "chat ")) else clip.title) \
+        or f"{clip.creator_name or 'Live'} stream moment"
+    credit = f"Clip from {clip.creator_name or 'the streamer'}'s live stream" + \
+        (f": {clip.source_url}" if clip.source_url else ".")
+    body = meta.get("description") or ""
+    hashtag_line = " ".join(f"#{t}" for t in tags[:10])
+    description = "\n\n".join(x for x in (body, hashtag_line, credit) if x)
+    return title[:100], description, tags[:15]
+
+
 async def make_post(d: dict, client) -> None:
     """Write the title/description with Gemini, then render the default 40 s Short and (via the renderer) upload it."""
     from ..clip_storage import read_words
@@ -96,19 +119,22 @@ async def make_post(d: dict, client) -> None:
         return
     st = db.get(db.Stream, clip.stream_id) if clip.stream_id else None
     words = [w for w in read_words(clip) if clip.suggested_start - 1 <= w["s"] <= clip.suggested_end + 1]
-    try:
-        live_title = (rb.get_json(rb.k("stream", clip.stream_id, "hb")) or {}).get("title", "") if clip.stream_id else ""
-        meta = await gemini_judge.write_metadata(words, live_title or (st.url if st else ""),
-                                                 clip.creator_name, clip.platform, clip.reason, clip.stream_id or "",
-                                                 client)
-    except Exception as e:  # noqa: BLE001 - a missing title must not lose the Short
-        rb.log_activity(clip.stream_id or "", f"title writer failed, using a plain title: {str(e)[:120]}", "warn")
-        meta = {"title": "", "hook": "", "description": "", "hashtags": []}
-    title = meta["title"] or clip.title or f"{clip.creator_name} live moment"
-    credit = f"Clip from {clip.creator_name or 'the streamer'}'s live stream" + \
-        (f": {clip.source_url}" if clip.source_url else ".")
-    description = "\n\n".join(x for x in (meta["description"] or clip.description, credit) if x)
-    tags = list(dict.fromkeys((meta["hashtags"] or clip.hashtags or []) + ["shorts"]))
+    live_title = (rb.get_json(rb.k("stream", clip.stream_id, "hb")) or {}).get("title", "") if clip.stream_id else ""
+    meta = {"title": "", "hook": "", "description": "", "hashtags": []}
+    for attempt in range(3):                  # Gemini is sometimes slow: try again before using a plain title
+        try:
+            meta = await gemini_judge.write_metadata(words, live_title or (st.url if st else ""),
+                                                     clip.creator_name, clip.platform, clip.reason,
+                                                     clip.stream_id or "", client)
+            break
+        except Exception as e:  # noqa: BLE001 - a missing title must not lose the Short
+            if attempt == 2:
+                rb.log_activity(clip.stream_id or "", f"title writer failed, using a plain title: {str(e)[:120]}",
+                                "warn")
+            else:
+                await asyncio.sleep(10 * (attempt + 1))
+    defaults = (st.settings or {}).get("hashtags") if st and (st.settings or {}).get("hashtags") else None
+    title, description, tags = post_text(clip, meta, defaults)
     db.update(db.Clip, clip.id, title=title[:200], hook=meta["hook"] or clip.hook, description=description,
               hashtags=tags)
     clip = db.get(db.Clip, clip.id)

@@ -152,6 +152,10 @@ class Settings:
     youtube_chat_daily_quota_budget: int = field(default_factory=lambda: _int("YOUTUBE_CHAT_DAILY_QUOTA_BUDGET", 4000))
     youtube_chat_min_poll_seconds: float = field(default_factory=lambda: _float("YOUTUBE_CHAT_MIN_POLL_SECONDS", 8))
     auto_upload: str = field(default_factory=lambda: _env("AUTO_UPLOAD", "off"))  # off | private | unlisted | public
+    # always-included hashtags (comma list), first in every Short's description; a stream's own "hashtags" setting
+    # replaces it for that stream. Gemini adds moment-specific ones after these.
+    default_hashtags: list = field(default_factory=lambda: [h.strip().lstrip("#") for h in
+                                                            _env("DEFAULT_HASHTAGS", "").split(",") if h.strip()])
     auto_upload_min_confidence: int = field(default_factory=lambda: _int("AUTO_UPLOAD_MIN_CONFIDENCE", 85))
     ytdlp_cookies_file: str = field(default_factory=lambda: _env("YTDLP_COOKIES_FILE"))
     ytdlp_proxy: str = field(default_factory=lambda: _env("YTDLP_PROXY"))
