@@ -94,7 +94,16 @@ def to_event(item: dict, stream_id: str) -> ChatEvent | None:
                     "memberMilestoneChatEvent"):
         return None
     emotes = len(re.findall(r":[a-z0-9_-]+:", text, re.I))     # YouTube writes custom emoji as :name:
-    return ChatEvent(platform="youtube", stream_id=stream_id, ts=time.time(),
+    # YouTube delivers chat in batches every few seconds; the message's own publishedAt time places it where it
+    # was actually written, so a batch doesn't look like a sudden spike
+    ts = time.time()
+    try:
+        pub = datetime.fromisoformat(str(sn.get("publishedAt", "")).replace("Z", "+00:00")).timestamp()
+        if 0 <= ts - pub < 120:
+            ts = pub
+    except ValueError:
+        pass
+    return ChatEvent(platform="youtube", stream_id=stream_id, ts=ts,
                      user_id=au.get("channelId") or sn.get("authorChannelId", ""), user=au.get("displayName", ""),
                      text=text[:500], emotes=emotes, is_mod=bool(au.get("isChatModerator") or au.get("isChatOwner")),
                      is_member=bool(au.get("isChatSponsor")),

@@ -98,7 +98,8 @@ class StreamWorker:
     def on_chat(self, ev: ChatEvent):
         if self.samples == 0:
             return            # not capturing yet: there is no stream clock to place this message on
-        self.chat.add(ev, int(self.t))
+        late = min(60.0, max(0.0, time.time() - ev.ts))    # batched delivery: count it when it was written
+        self.chat.add(ev, int(max(0.0, self.t - late)))
 
     def on_chat_state(self, ok: bool, why: str):
         self.chat.connected = ok

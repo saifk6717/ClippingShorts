@@ -53,8 +53,10 @@ class ChatAnalyzer:
             if b is None:
                 b = self.sec[second] = {"m": 0, "users": collections.Counter(), "emote": 0, "react": 0,
                                         "repeat": 0, "laugh": 0}
-                while self.sec and next(iter(self.sec)) < second - self.window:
-                    self.sec.popitem(last=False)
+                if len(self.sec) > self.window + 5:           # messages can arrive out of order: prune by age
+                    newest = max(self.sec)
+                    for old in [t for t in self.sec if t < newest - self.window]:
+                        del self.sec[old]
             b["m"] += 1
             b["users"][ev.user_id or ev.user] += 1
             words = len(norm.split()) or 1

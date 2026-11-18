@@ -157,8 +157,10 @@ async def evaluate(d: dict, client: httpx.AsyncClient) -> str:
                                        asyncio.wait_for(rj, settings.gemini_timeout_seconds + 10),
                                        return_exceptions=True)
         errs = [x for x in results if isinstance(x, BaseException)]
-        if len(errs) == 2:
-            raise RuntimeError(f"both judges failed: {errs[0]!r}")
+        no_words = isinstance(results[0], dict) and results[0].get("reason") == "not enough speech"
+        if len(errs) == 2 or (no_words and isinstance(results[1], BaseException)):
+            # nothing was actually judged (a Gemini timeout/error): retry the job instead of rejecting the moment
+            raise RuntimeError(f"no judge answered: {errs[0]!r}")
         t = results[0] if not isinstance(results[0], BaseException) else {"found": False, "score": 0,
                                                                             "reason": f"error: {results[0]!r}"[:200]}
         r = results[1] if not isinstance(results[1], BaseException) else {"found": False, "score": 0,

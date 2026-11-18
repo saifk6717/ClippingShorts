@@ -111,6 +111,8 @@ class Settings:
     candidate_cooldown_seconds: int = field(default_factory=lambda: _int("CANDIDATE_COOLDOWN_SECONDS", 45))
     ai_eval_interval_seconds: int = field(default_factory=lambda: _int("AI_EVAL_INTERVAL_SECONDS", 300))
     merge_gap_seconds: int = field(default_factory=lambda: _int("HIGHLIGHT_MERGE_GAP_SECONDS", 45))
+    # how many candidates a stream may send to the AI per hour (bounds Gemini cost); separate from the accepted cap
+    max_candidates_per_hour: int = field(default_factory=lambda: _int("MAX_CANDIDATES_PER_HOUR", 40))
     max_highlights_per_hour: int = field(default_factory=lambda: _int("MAX_HIGHLIGHTS_PER_HOUR", 8))
     accept_transcript_min: int = field(default_factory=lambda: _int("ACCEPT_TRANSCRIPT_MIN", 60))
     accept_reaction_min: int = field(default_factory=lambda: _int("ACCEPT_REACTION_MIN", 50))
@@ -129,7 +131,7 @@ class Settings:
     gemini_model: str = field(default_factory=lambda: _env("GEMINI_MODEL", "gemini-3.8-flash"))
     gemini_location: str = field(default_factory=lambda: _env("GEMINI_LOCATION", "global"))
     gemini_thinking_level: str = field(default_factory=lambda: _env("GEMINI_THINKING_LEVEL", ""))
-    gemini_timeout_seconds: float = field(default_factory=lambda: _float("GEMINI_TIMEOUT_SECONDS", 45))
+    gemini_timeout_seconds: float = field(default_factory=lambda: _float("GEMINI_TIMEOUT_SECONDS", 90))
     gemini_price_in_per_m: float = field(default_factory=lambda: _float("GEMINI_PRICE_INPUT_PER_M_TOKENS", 0.0))
     gemini_price_out_per_m: float = field(default_factory=lambda: _float("GEMINI_PRICE_OUTPUT_PER_M_TOKENS", 0.0))
     gemini_daily_request_budget: int = field(default_factory=lambda: _int("GEMINI_DAILY_REQUEST_BUDGET", 3000))

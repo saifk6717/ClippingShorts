@@ -71,11 +71,11 @@ def test_chat_window_is_bounded():
     c = ChatAnalyzer(window_seconds=60)
     for sec in range(0, 1000):
         c.add(_ev("a"), sec)
-    assert len(c.sec) <= 62
+    assert len(c.sec) <= 67
 
 
 def test_detector_cooldown_and_cap():
-    d = HighlightDetector({"candidate_cooldown_seconds": 30, "max_highlights_per_hour": 2,
+    d = HighlightDetector({"candidate_cooldown_seconds": 30, "max_candidates_per_hour": 2,
                            "ai_eval_interval_seconds": 0})
     fired = [d.step(t, 90, 0, {}, True) for t in range(100, 200)]
     hits = [c for c in fired if c]
@@ -110,3 +110,12 @@ def test_lines_grouping():
             [{"w": "late", "s": 20, "e": 20.3}]
     lines = lines_from_words(words)
     assert len(lines) == 2 and lines[1]["text"] == "late"
+
+
+def test_late_batched_chat_is_placed_when_written():
+    c = ChatAnalyzer(window_seconds=60)
+    for sec in (100, 90, 95, 101, 30, 102):       # out of order, as batched YouTube chat arrives
+        c.add(_ev(f"u{sec}"), sec)
+    for sec in range(103, 300):
+        c.add(_ev("x"), sec)
+    assert min(c.sec) >= 299 - 66 and len(c.sec) <= 67   # old seconds are still pruned

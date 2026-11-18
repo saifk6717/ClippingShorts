@@ -32,7 +32,9 @@ class HighlightDetector:
         o = overrides or {}
         self.trigger_score = float(o.get("local_trigger_score", settings.local_trigger_score))
         self.cooldown = float(o.get("candidate_cooldown_seconds", settings.candidate_cooldown_seconds))
-        self.per_hour = int(o.get("max_highlights_per_hour", settings.max_highlights_per_hour))
+        # a budget for candidates (each costs an AI call), NOT the cap on accepted highlights: that one is enforced
+        # by the AI worker on accepted highlights only, so rejected candidates never silence the detector
+        self.per_hour = int(o.get("max_candidates_per_hour", settings.max_candidates_per_hour))
         self.interval = float(o.get("ai_eval_interval_seconds", settings.ai_eval_interval_seconds))
         self.keywords = [w.strip().lower() for w in str(o.get("trigger_words", "")).split(",") if w.strip()]
         self.last_candidate = -1e9
