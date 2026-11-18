@@ -9,6 +9,19 @@ Shorts and publish them to YouTube.
   cannot run out of memory, CPU or disk.
 - **Your own keys**: Google Cloud (Gemini + Speech-to-Text) and your own YouTube channel.
 
+## Screenshots
+
+**Dashboard**: every configured stream at a glance, plus live CPU/RAM/disk, the health of Redis, the database
+and each worker, measured pipeline latencies, and an activity feed of highlights, renders and uploads.
+
+![ClippingShorts dashboard](docs/screenshots/dashboard.png)
+
+**Highlights library**: every saved highlight with its thumbnail, platform, AI confidence and length, plus its
+review, render and upload status. Approve or reject clips, play the finished Short, or open it on YouTube. Filter
+by platform, type, streamer and date, and select several clips for batch actions.
+
+![ClippingShorts highlights library](docs/screenshots/highlights-library.png)
+
 > **Responsible use.** ClippingShorts records nothing but the short windows around highlights, but those clips are
 > still other people's content. Only clip and publish streams you own or have permission to use, and follow the
 > terms of Twitch, YouTube and the creators you clip. Re-uploading someone else's stream can get your channel
