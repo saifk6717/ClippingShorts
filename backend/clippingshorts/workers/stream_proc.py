@@ -226,8 +226,8 @@ class StreamWorker:
             piece, t0 = audio[:cut], self.pending_t0
             del self.pending[: cut * 2]
             self.pending_t0 += cut / SR
-        if settings.transcription_provider == "none":
-            return
+        if settings.transcription_provider == "none" or not settings.live_transcription:
+            return                     # only saved Shorts are transcribed (LIVE_TRANSCRIPTION=0)
         ok, why = admit("transcribe")
         if not ok:
             self.chunks_dropped += 1
@@ -309,7 +309,8 @@ class StreamWorker:
             if self.t < oc["due"]:
                 continue
             waited = time.time() - oc["created"]
-            if tr_until < oc["due"] and waited < 45 and settings.transcription_provider != "none":
+            if tr_until < oc["due"] and waited < 45 and settings.transcription_provider != "none" \
+                    and settings.live_transcription:
                 continue
             self.open_candidates.remove(oc)
             a, b = int(max(0, oc["t"] - 90)), int(oc["due"])

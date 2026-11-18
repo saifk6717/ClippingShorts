@@ -44,7 +44,9 @@ def _speech_usage(stream_id, seconds, ms, ok, prov, err=""):
 def do_transcription(msg: rb.Message) -> None:
     d = msg.data
     if d.get("kind") == "clip":
-        precise_words(d["clip_id"])
+        precise_words(d["clip_id"], only_short=True)      # a failure is retried; the final one is handled in on_dead
+        if d.get("auto_upload"):
+            queue_metadata(d["clip_id"], d["auto_upload"])
         return
     path = Path(d["path"])
     if not path.exists():
@@ -80,8 +82,48 @@ def do_transcription(msg: rb.Message) -> None:
     path.unlink(missing_ok=True)
 
 
+def queue_metadata(clip_id: str, auto_upload: str) -> None:
+    """Next step of the automatic Short: Gemini writes the post (title, description, hashtags, hook)."""
+    rb.queue("highlight_eval").put({"kind": "metadata", "clip_id": clip_id, "auto_upload": auto_upload}, force=True)
+
+
+async def make_post(d: dict, client) -> None:
+    """Write the title/description with Gemini, then render the default 40 s Short and (via the renderer) upload it."""
+    from ..clip_storage import read_words
+    from ..jobs import create_edit, enqueue_render
+    clip = db.get(db.Clip, d["clip_id"])
+    if clip is None or clip.status != "ready":
+        return
+    st = db.get(db.Stream, clip.stream_id) if clip.stream_id else None
+    words = [w for w in read_words(clip) if clip.suggested_start - 1 <= w["s"] <= clip.suggested_end + 1]
+    try:
+        live_title = (rb.get_json(rb.k("stream", clip.stream_id, "hb")) or {}).get("title", "") if clip.stream_id else ""
+        meta = await gemini_judge.write_metadata(words, live_title or (st.url if st else ""),
+                                                 clip.creator_name, clip.platform, clip.reason, clip.stream_id or "",
+                                                 client)
+    except Exception as e:  # noqa: BLE001 - a missing title must not lose the Short
+        rb.log_activity(clip.stream_id or "", f"title writer failed, using a plain title: {str(e)[:120]}", "warn")
+        meta = {"title": "", "hook": "", "description": "", "hashtags": []}
+    title = meta["title"] or clip.title or f"{clip.creator_name} live moment"
+    credit = f"Clip from {clip.creator_name or 'the streamer'}'s live stream" + \
+        (f": {clip.source_url}" if clip.source_url else ".")
+    description = "\n\n".join(x for x in (meta["description"] or clip.description, credit) if x)
+    tags = list(dict.fromkeys((meta["hashtags"] or clip.hashtags or []) + ["shorts"]))
+    db.update(db.Clip, clip.id, title=title[:200], hook=meta["hook"] or clip.hook, description=description,
+              hashtags=tags)
+    clip = db.get(db.Clip, clip.id)
+    e = create_edit(clip, {"start": clip.suggested_start, "end": clip.suggested_end, "title": title[:100],
+                           "description": description, "hashtags": tags,
+                           "hook": {"enabled": True, "text": meta["hook"] or clip.hook, "position": 0.14}}, auto=True)
+    enqueue_render(e.id, auto_upload=d["auto_upload"])
+    rb.log_activity(clip.stream_id or "", f"Short written: \"{title[:80]}\" – rendering, then uploading ({d['auto_upload']})")
+
+
 # ---------------------------------------------------------------- highlight evaluation
 async def evaluate(d: dict, client: httpx.AsyncClient) -> str:
+    if d.get("kind") == "metadata":
+        await make_post(d, client)
+        return "post"
     hid = d["highlight_id"]
     h = db.get(db.Highlight, hid)
     if h is None or h.status not in ("candidate", "evaluating"):
@@ -133,8 +175,10 @@ async def evaluate(d: dict, client: httpx.AsyncClient) -> str:
         rolling_buffer.release_pin(bid, h.pin_id)
         db.update(db.Highlight, hid, status="rejected", **fields)
         return "rejected"
-    start = float(t["start"]) if t.get("found") else max(0.0, event - settings.highlight_pre_seconds)
-    end = float(t["end"]) if t.get("found") else event + settings.highlight_post_seconds
+    if settings.fixed_short_range or not t.get("found"):
+        start, end = max(0.0, event - settings.highlight_pre_seconds), event + settings.highlight_post_seconds
+    else:
+        start, end = float(t["start"]), float(t["end"])
     # duplicates: an accepted highlight of this stream that overlaps or is within the merge gap
     with db.session() as s:
         recent = list(s.scalars(select(db.Highlight).where(
@@ -240,6 +284,8 @@ def on_dead(name: str, msg: rb.Message, err: str):
     d = msg.data
     if name == "transcription" and d.get("path"):
         Path(d["path"]).unlink(missing_ok=True)
+    if name == "transcription" and d.get("kind") == "clip" and d.get("auto_upload"):
+        queue_metadata(d["clip_id"], d["auto_upload"])       # captions failed: still publish, without them
     if name == "highlight_eval":
         h = db.get(db.Highlight, d.get("highlight_id"))
         if h:

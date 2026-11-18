@@ -35,8 +35,8 @@ _stop = threading.Event()
 async def lifespan(_app: FastAPI):
     if not settings.secret_key or len(settings.secret_key) < 32:
         raise RuntimeError("Set CLIPPINGSHORTS_SECRET_KEY to a random value of at least 32 characters.")
-    if not settings.admin_password or len(settings.admin_password) < 10:
-        raise RuntimeError("Set CLIPPINGSHORTS_ADMIN_PASSWORD (at least 10 characters).")
+    if not settings.admin_password or len(settings.admin_password) < 8:
+        raise RuntimeError("Set CLIPPINGSHORTS_ADMIN_PASSWORD (at least 8 characters).")
     settings.ensure_dirs()
     db.init_db()
     threading.Thread(target=monitoring.sampler, args=(_stop,), daemon=True, name="sampler").start()
@@ -241,6 +241,11 @@ def clip_view(c: db.Clip, detail: bool = False) -> dict:
         edits = list(s.scalars(select(db.Edit).where(db.Edit.clip_id == c.id).order_by(db.Edit.version.desc())))
         ups = list(s.scalars(select(db.Upload).where(db.Upload.clip_id == c.id).order_by(db.Upload.created_at.desc())))
     d["render_status"] = edits[0].status if edits else "none"
+    done_edit = next((e for e in edits if e.status == "done"), None)
+    d["short_url"] = f"/api/edits/{done_edit.id}/file" if done_edit else None
+    d["short_thumbnail_url"] = f"/api/edits/{done_edit.id}/thumbnail" if done_edit else None
+    yt = next((u for u in ups if u.status == "done" and u.youtube_video_id), None)
+    d["youtube_url"] = f"https://youtube.com/shorts/{yt.youtube_video_id}" if yt else None
     d["upload_status"] = next((u.status for u in ups if u.status == "done"), ups[0].status if ups else "none")
     d["edits_count"] = len(edits)
     if detail:

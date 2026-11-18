@@ -184,19 +184,23 @@ class Supervisor:
                 rb.log_activity(h.stream_id, f"clip extraction failed: {err[:150]}", "error")
 
     def after_extract(self, clip_id: str, data: dict):
-        """Precise captions from the clip's own audio, and the optional automatic Short + upload."""
+        """Next steps for a saved highlight: transcribe the Short's 40 s for captions, then (when automatic
+        publishing is on) Gemini writes the post, the renderer makes the Short and the AI worker uploads it."""
+        clip = db.get(db.Clip, clip_id)
+        if clip is None:
+            return
+        st = db.get(db.Stream, clip.stream_id) if clip.stream_id else None
+        mode = ((st.settings or {}).get("auto_upload") if st else None) or settings.auto_upload
+        auto = mode if mode in ("private", "unlisted", "public") and \
+            clip.confidence >= settings.auto_upload_min_confidence else ""
         if settings.transcription_provider in ("chirp3", "parakeet"):
             try:
-                rb.queue("transcription").put({"kind": "clip", "clip_id": clip_id})
-            except rb.QueueFull:
+                rb.queue("transcription").put({"kind": "clip", "clip_id": clip_id, "auto_upload": auto}, force=True)
+                return
+            except Exception:  # noqa: BLE001
                 pass
-        clip = db.get(db.Clip, clip_id)
-        st = db.get(db.Stream, clip.stream_id) if clip and clip.stream_id else None
-        mode = ((st.settings or {}).get("auto_upload") if st else None) or settings.auto_upload
-        if clip and mode in ("private", "unlisted", "public") and clip.confidence >= settings.auto_upload_min_confidence:
-            from ..jobs import create_edit, enqueue_render
-            e = create_edit(clip, {"start": clip.suggested_start, "end": clip.suggested_end}, auto=True)
-            enqueue_render(e.id, auto_upload=mode)
+        if auto:
+            rb.queue("highlight_eval").put({"kind": "metadata", "clip_id": clip_id, "auto_upload": auto}, force=True)
 
     # ---------------------------------------------------------------- housekeeping
     def janitor(self):

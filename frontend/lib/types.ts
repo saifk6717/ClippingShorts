@@ -130,6 +130,9 @@ export interface Clip {
   thumbnail_url: string | null;
   preview_url: string | null;
   render_status: string;
+  short_url: string | null;
+  short_thumbnail_url: string | null;
+  youtube_url: string | null;
   upload_status: string;
   edits_count: number;
   edits?: Edit[];

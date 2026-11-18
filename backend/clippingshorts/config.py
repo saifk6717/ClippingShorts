@@ -93,7 +93,7 @@ class Settings:
     # ---------------------------------------------------------------- rolling buffer and source clips
     segment_seconds: int = field(default_factory=lambda: _int("SEGMENT_SECONDS", 4))
     rolling_buffer_seconds: int = field(default_factory=lambda: _int("ROLLING_BUFFER_SECONDS", 180))
-    highlight_pre_seconds: int = field(default_factory=lambda: _int("HIGHLIGHT_PRE_SECONDS", 30))
+    highlight_pre_seconds: int = field(default_factory=lambda: _int("HIGHLIGHT_PRE_SECONDS", 20))
     highlight_post_seconds: int = field(default_factory=lambda: _int("HIGHLIGHT_POST_SECONDS", 20))
     # the saved source recording around a highlight (2-5 minutes); must fit inside the rolling buffer
     source_pre_seconds: int = field(default_factory=lambda: _int("SOURCE_CLIP_PRE_SECONDS", 120))
@@ -114,6 +114,12 @@ class Settings:
     max_highlights_per_hour: int = field(default_factory=lambda: _int("MAX_HIGHLIGHTS_PER_HOUR", 8))
     accept_transcript_min: int = field(default_factory=lambda: _int("ACCEPT_TRANSCRIPT_MIN", 60))
     accept_reaction_min: int = field(default_factory=lambda: _int("ACCEPT_REACTION_MIN", 50))
+    # with live transcription off there are no words to judge, so the reaction judge alone decides
+    accept_reaction_only_min: int = field(default_factory=lambda: _int("ACCEPT_REACTION_ONLY_MIN", 70))
+    # transcribe whole streams live (costly) or only each saved Short (default)
+    live_transcription: bool = field(default_factory=lambda: _bool("LIVE_TRANSCRIPTION", False))
+    # Shorts are exactly HIGHLIGHT_PRE_SECONDS before and HIGHLIGHT_POST_SECONDS after the detected moment
+    fixed_short_range: bool = field(default_factory=lambda: _bool("FIXED_SHORT_RANGE", True))
     accept_single_judge_min: int = field(default_factory=lambda: _int("ACCEPT_SINGLE_JUDGE_MIN", 88))
 
     # ---------------------------------------------------------------- Google (Gemini + Speech-to-Text)

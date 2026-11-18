@@ -36,6 +36,19 @@ class _Quiet:
     def error(self, m): pass
 
 
+def _private_cookies(shared: str) -> str:
+    """A private copy of the cookies file for this process. yt-dlp writes refreshed cookies back to the file it was
+    given; with one shared file, several stream workers writing at once could corrupt it."""
+    import os
+    import shutil
+    import tempfile
+    own = Path(tempfile.gettempdir()) / f"cs-cookies-{os.getpid()}.txt"
+    if not own.exists() or own.stat().st_mtime < Path(shared).stat().st_mtime:
+        shutil.copyfile(shared, own)
+        os.chmod(own, 0o600)
+    return str(own)
+
+
 def resolve(url: str, platform: str) -> Resolved:
     """Ask yt-dlp for the live stream's address. Raises NotLive when it is not live or cannot be fetched."""
     if platform == "synthetic":
@@ -46,7 +59,7 @@ def resolve(url: str, platform: str) -> Resolved:
     opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "logger": _Quiet(),
             "format": f"b[height<={h}]/bv*[height<={h}]+ba/b", "socket_timeout": 20}
     if settings.ytdlp_cookies_file and Path(settings.ytdlp_cookies_file).is_file():
-        opts["cookiefile"] = settings.ytdlp_cookies_file
+        opts["cookiefile"] = _private_cookies(settings.ytdlp_cookies_file)
     if settings.ytdlp_proxy:
         opts["proxy"] = settings.ytdlp_proxy
     try:

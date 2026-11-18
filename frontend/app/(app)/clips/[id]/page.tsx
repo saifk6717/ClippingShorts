@@ -111,6 +111,7 @@ export default function EditorPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          {clip.youtube_url && <Button size="sm" asChild><a href={clip.youtube_url} target="_blank" rel="noreferrer noopener">Open on YouTube</a></Button>}
           <Button size="sm" variant="outline" onClick={() => review.mutate("approved")}><Check /> Approve</Button>
           <Button size="sm" variant="outline" onClick={() => review.mutate("rejected")}><X /> Reject</Button>
           <Button size="sm" variant="ghost" onClick={async () => { if (confirm("Delete this clip and every version?")) { await del(`/api/clips/${id}`); router.push("/clips"); } }}><Trash2 /></Button>

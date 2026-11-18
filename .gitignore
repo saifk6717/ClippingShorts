@@ -8,7 +8,7 @@ secrets/
 *service-account*.json
 *client_secret*.json
 *credentials*.json
-cookies*.txt
+*cookies*.txt
 storage/*
 !storage/.gitkeep
 data/

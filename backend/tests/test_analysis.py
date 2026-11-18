@@ -99,6 +99,10 @@ def test_judges_must_agree():
     assert not combine({"found": True, "start": 10, "end": 20, "score": 75},
                        {"found": True, "start": 200, "end": 210, "score": 70}, 60)[0]
     assert combine({"found": True, "start": 10, "end": 20, "score": 95}, {"found": False, "score": 0}, 70)[0]
+    # no speech to judge (live transcription off): a clear reaction alone decides, a weak one does not
+    silent = {"found": False, "score": 0, "reason": "not enough speech"}
+    assert combine(silent, {"found": True, "start": 5, "end": 15, "score": 75}, 60)[0]
+    assert not combine(silent, {"found": True, "start": 5, "end": 15, "score": 50}, 60)[0]
 
 
 def test_lines_grouping():

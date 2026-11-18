@@ -150,19 +150,24 @@ def make_helpers(src, out_dir, duration: float, cover_t: float) -> None:
                                                                   / SPRITE_COLS), "sheet_h": sprite_h})
 
 
-def precise_words(clip_id: str) -> int:
-    """Re-transcribe the saved clip's own audio, so captions line up exactly with this file."""
+def precise_words(clip_id: str, only_short: bool = True) -> int:
+    """Transcribe the saved clip's own audio so captions line up exactly with this file. By default only the Short's
+    range (plus 2 s either side) is sent, so a 40 s Short costs 44 s of transcription, not the whole source clip."""
     from .transcription import SR, transcribe
     clip = db.get(db.Clip, clip_id)
     if clip is None or clip.status != "ready":
         return 0
     src = settings.source_dir / clip.rel_dir / "source.mp4"
-    p = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(src), "-vn", "-ac", "1",
-                        "-ar", str(SR), "-f", "s16le", "pipe:1"], capture_output=True, timeout=180)
+    a = max(0.0, clip.suggested_start - 2) if only_short else 0.0
+    b = min(clip.duration, clip.suggested_end + 2) if only_short else clip.duration
+    p = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-ss", f"{a:.2f}", "-t", f"{b - a:.2f}",
+                        "-i", str(src), "-vn", "-ac", "1", "-ar", str(SR), "-f", "s16le", "pipe:1"],
+                       capture_output=True, timeout=180)
     if p.returncode != 0:
         raise ExtractionError("could not read the clip audio")
     pcm = np.frombuffer(p.stdout[: len(p.stdout) // 2 * 2], dtype=np.int16)
     words, _prov = transcribe(pcm)
+    words = [{"w": w["w"], "s": round(w["s"] + a, 2), "e": round(w["e"] + a, 2)} for w in words]
     atomic_write_json(settings.source_dir / clip.rel_dir / "words.precise.json", words)
     db.update(db.Clip, clip_id, words_status="precise")
     rb.publish("clip", clip_id=clip_id, status="words")

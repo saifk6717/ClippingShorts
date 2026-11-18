@@ -9,4 +9,6 @@ psutil==7.1.0
 google-auth==2.40.3
 requests==2.32.4
 yt-dlp==2026.10.26
+# YouTube JS challenge solver scripts (used with the Deno runtime in the image); without it YouTube gives no formats
+yt-dlp-ejs==0.8.0
 pillow==11.3.0

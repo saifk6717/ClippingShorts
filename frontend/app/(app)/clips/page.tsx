@@ -1,6 +1,6 @@
 "use client";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Clapperboard, Lock, Trash2, X } from "lucide-react";
+import { Check, Clapperboard, ExternalLink, Lock, Play, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input, NativeSelect } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api, post } from "@/lib/api";
@@ -27,6 +28,7 @@ function Library() {
   const router = useRouter();
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [watching, setWatching] = useState<Clip | null>(null);
   const get = (k: string, d = "") => sp.get(k) ?? d;
   const setParam = (k: string, v: string) => {
     const p = new URLSearchParams(sp.toString());
@@ -116,9 +118,24 @@ function Library() {
                 {c.upload_status !== "none" && <span className="text-xs text-muted-foreground">upload:</span>}{c.upload_status !== "none" && <StatusBadge status={c.upload_status} />}
               </div>
             </Link>
+            {(c.short_url || c.youtube_url) && (
+              <div className="flex gap-2 border-t p-2">
+                {c.short_url && <Button size="sm" variant="secondary" className="flex-1" onClick={() => setWatching(c)}><Play /> Watch Short</Button>}
+                {c.youtube_url && <Button size="sm" variant="outline" className="flex-1" asChild><a href={c.youtube_url} target="_blank" rel="noreferrer noopener"><ExternalLink /> On YouTube</a></Button>}
+              </div>
+            )}
           </Card>
         ))}
       </div>
+      {watching && (
+        <Dialog open onOpenChange={(o) => !o && setWatching(null)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader><DialogTitle className="pr-6 text-sm">{watching.title}</DialogTitle></DialogHeader>
+            <video src={watching.short_url!} controls autoPlay playsInline preload="metadata" className="max-h-[70vh] w-full rounded-md bg-black" />
+            {watching.youtube_url && <a className="text-sm text-primary" href={watching.youtube_url} target="_blank" rel="noreferrer noopener">{watching.youtube_url}</a>}
+          </DialogContent>
+        </Dialog>
+      )}
       {data && data.pages > 1 && (
         <div className="flex items-center justify-center gap-2">
           <Button size="sm" variant="outline" disabled={data.page <= 1} onClick={() => setParam("page", String(data.page - 1))}>Previous</Button>
