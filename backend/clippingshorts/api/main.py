@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -232,6 +233,19 @@ def stream_health(sid: str, _r=Depends(security.viewer)):
 
 
 # ---------------------------------------------------------------- clips
+def friendly_upload_error(err: str) -> str:
+    """YouTube's error JSON in one readable line."""
+    e = err or ""
+    if "uploadLimitExceeded" in e or "exceeded the number of videos" in e:
+        return "YouTube's daily upload limit for this channel is reached. Try again later (about 24 h after the first upload of the day)."
+    if "quotaExceeded" in e:
+        return "The YouTube API quota for today is used up. Try again after midnight Pacific time."
+    if "invalid_grant" in e or "unauthorized_client" in e:
+        return "The YouTube token no longer works. Create a new refresh token (see README)."
+    m = re.search(r'"message":\s*"([^"]+)"', e)
+    return (m.group(1) if m else e)[:200]
+
+
 def clip_view(c: db.Clip, detail: bool = False) -> dict:
     d = db.to_dict(c)
     d.pop("rel_dir", None)
@@ -247,10 +261,14 @@ def clip_view(c: db.Clip, detail: bool = False) -> dict:
     yt = next((u for u in ups if u.status == "done" and u.youtube_video_id), None)
     d["youtube_url"] = f"https://youtube.com/shorts/{yt.youtube_video_id}" if yt else None
     d["upload_status"] = next((u.status for u in ups if u.status == "done"), ups[0].status if ups else "none")
+    failed = None if yt else next((u for u in ups if u.status == "failed"), None)
+    d["failed_upload_id"] = failed.id if failed else None          # the Short can be sent again with one click
+    d["upload_error"] = friendly_upload_error(failed.error) if failed else ""
     d["edits_count"] = len(edits)
     if detail:
         d["edits"] = [edit_view(e) for e in edits]
-        d["uploads"] = [db.to_dict(u) for u in ups]
+        d["uploads"] = [{**db.to_dict(u), "error_short": friendly_upload_error(u.error) if u.status == "failed" else ""}
+                        for u in ups]
         d["default_params"] = default_params(c)
         sprite = clip_storage.source_dir(c) / "sprite.json"
         d["sprite"] = json.loads(sprite.read_text()) if sprite.is_file() else None

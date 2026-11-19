@@ -93,3 +93,25 @@ def test_smart_crop_finds_motion(tmp_path):
                     "-preset", "ultrafast", str(out)], check=True)
     x = best_center(str(out), 0, 6, 1280, 720, 9 / 16)
     assert x > 0.6
+
+
+def test_crop_survives_a_resolution_change_mid_clip(tmp_path):
+    """Live recordings can switch from 1080p to 720p part-way; the crop must follow the decoded frame size."""
+    from clippingshorts.clip_renderer import video_filter
+    parts = []
+    for i, size in enumerate(("1920x1080", "1280x720")):
+        ts = tmp_path / f"p{i}.ts"
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                        f"testsrc2=size={size}:rate=30:duration=2", "-c:v", "libx264", "-preset", "ultrafast",
+                        "-f", "mpegts", str(ts)], check=True)
+        parts.append(ts)
+    joined = tmp_path / "joined.ts"
+    joined.write_bytes(b"".join(x.read_bytes() for x in parts))
+    vf = video_filter({"aspect": "9:16", "fit": "crop", "zoom": 1.0, "crop_y": 0.5}, 1920, 1080, 1080, 1920, 0.5)
+    out = tmp_path / "out.mp4"
+    p = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(joined),
+                        "-filter_complex", vf, "-map", "[v0]", "-c:v", "libx264", "-preset", "ultrafast", str(out)],
+                       capture_output=True, text=True, timeout=120)
+    assert p.returncode == 0, p.stderr[-400:]
+    info = probe(out)
+    assert (info["width"], info["height"]) == (1080, 1920) and info["duration"] > 3.5

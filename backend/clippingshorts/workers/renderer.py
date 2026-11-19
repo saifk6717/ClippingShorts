@@ -94,12 +94,31 @@ def heartbeat():
                                                        "container": cgroup_memory()}, ttl=20)
 
 
+def feeder():
+    """Queues Shorts that are waiting (render queue was full) as room frees up, oldest first."""
+    from sqlalchemy import select
+    from ..jobs import enqueue_render
+    while not STOP.wait(20):
+        try:
+            room = min(10, settings.queue_cap_render) - rb.queue("rendering").length()
+            if room <= 0:
+                continue
+            with db.session() as s:
+                waiting = list(s.scalars(select(db.Edit).where(db.Edit.status == "waiting")
+                                         .order_by(db.Edit.created_at).limit(room)))
+            for e in waiting:
+                enqueue_render(e.id, auto_upload=(e.params or {}).get("auto_upload") or None)
+        except Exception:  # noqa: BLE001 - try again on the next round
+            traceback.print_exc()
+
+
 def main():
     settings.ensure_dirs()
     db.init_db()
     signal.signal(signal.SIGTERM, lambda *_: STOP.set())
     signal.signal(signal.SIGINT, lambda *_: STOP.set())
     threading.Thread(target=heartbeat, daemon=True).start()
+    threading.Thread(target=feeder, daemon=True).start()
     threads = [threading.Thread(target=work, args=(i,), name=f"render-{i}")
                for i in range(settings.max_concurrent_render_jobs)]
     for t in threads:

@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -25,7 +26,7 @@ SIZES = {("9:16", "high"): (1080, 1920), ("9:16", "fast"): (720, 1280),
          ("16:9", "high"): (1920, 1080), ("16:9", "fast"): (1280, 720),
          ("1:1", "high"): (1080, 1080), ("1:1", "fast"): (720, 720)}
 RENDER_THREADS = int(os.environ.get("RENDER_THREADS", "2"))
-RENDER_TIMEOUT = int(os.environ.get("RENDER_TIMEOUT_SECONDS", "1800"))
+RENDER_TIMEOUT = int(os.environ.get("RENDER_TIMEOUT_SECONDS", "600"))      # a 40 s Short takes 1-3 min
 
 DEFAULT_PARAMS = {
     "start": 0.0, "end": 0.0, "aspect": "9:16", "fit": "crop", "crop_x": None, "crop_y": 0.5, "zoom": 1.0,
@@ -69,12 +70,15 @@ def video_filter(p: dict, src_w: int, src_h: int, out_w: int, out_h: int, crop_x
         cw, ch = src_h * target, src_h
     else:
         cw, ch = src_w, src_w / target
-    cw, ch = even(cw / zoom), even(ch / zoom)
-    cx = crop_x * src_w
-    cy = float(p.get("crop_y") if p.get("crop_y") is not None else 0.5) * src_h
-    x = int(min(max(0, cx - cw / 2), src_w - cw))
-    y = int(min(max(0, cy - ch / 2), src_h - ch))
-    return f"[0:v]crop={cw}:{ch}:{x}:{y},scale={out_w}:{out_h}:flags=lanczos,setsar=1,fps=30[v0]"
+    # sizes are expressions of the frame actually decoded (iw/ih), not of the probed size: a live recording can
+    # change resolution part-way (Twitch switching 1080p -> 720p), and a fixed 608x1080 crop then fails on 720p
+    cy = float(p.get("crop_y") if p.get("crop_y") is not None else 0.5)
+    t = f"{target:.6f}"
+    w = f"trunc(min(iw\\,ih*{t})/{zoom:.4f}/2)*2"
+    h = f"trunc(min(ih\\,iw/{t})/{zoom:.4f}/2)*2"
+    x = f"max(0\\,min(iw-ow\\,iw*{crop_x:.4f}-ow/2))"
+    y = f"max(0\\,min(ih-oh\\,ih*{cy:.4f}-oh/2))"
+    return f"[0:v]crop=w={w}:h={h}:x={x}:y={y},scale={out_w}:{out_h}:flags=lanczos,setsar=1,fps=30[v0]"
 
 
 def audio_filter(p: dict) -> str:
@@ -156,6 +160,24 @@ def render(edit_id: str, on_progress: Callable[[float], None] | None = None) -> 
                                 preexec_fn=lambda: os.nice(10))
         total = end - start
         last = 0.0
+        # error output is read all the time (a full pipe would freeze FFmpeg), and a timer stops a render that
+        # hangs without printing anything (the progress loop alone can't notice that)
+        err_tail: list[str] = []
+
+        def drain():
+            for ln in proc.stderr:
+                err_tail.append(ln)
+                del err_tail[:-40]
+        threading.Thread(target=drain, daemon=True).start()
+        timed_out = threading.Event()
+
+        def watchdog():
+            if proc.poll() is None:
+                timed_out.set()
+                proc.kill()
+        timer = threading.Timer(RENDER_TIMEOUT, watchdog)
+        timer.daemon = True
+        timer.start()
         try:
             for line in proc.stdout:
                 if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
@@ -172,10 +194,14 @@ def render(edit_id: str, on_progress: Callable[[float], None] | None = None) -> 
                     raise MediaError(f"render took longer than {RENDER_TIMEOUT}s and was stopped")
             proc.wait(timeout=60)
         finally:
+            timer.cancel()
             if proc.poll() is None:
                 proc.kill()
+        if timed_out.is_set():
+            raise MediaError(f"render took longer than {RENDER_TIMEOUT}s and was stopped")
         if proc.returncode != 0:
-            raise MediaError("FFmpeg render failed: " + (proc.stderr.read() or "")[-600:])
+            time.sleep(0.2)
+            raise MediaError("FFmpeg render failed: " + "".join(err_tail)[-600:])
         tmp_final = clip_storage.tmp_name(final)
         shutil.move(str(tmp_out), tmp_final)
         os.replace(tmp_final, final)

@@ -98,6 +98,7 @@ export interface Upload {
   youtube_video_id: string;
   attempts: number;
   error: string;
+  error_short?: string;
   created_at: number;
 }
 
@@ -134,6 +135,8 @@ export interface Clip {
   short_thumbnail_url: string | null;
   youtube_url: string | null;
   upload_status: string;
+  failed_upload_id: string | null;
+  upload_error: string;
   edits_count: number;
   edits?: Edit[];
   uploads?: Upload[];

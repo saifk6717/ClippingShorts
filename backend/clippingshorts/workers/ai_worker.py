@@ -113,7 +113,7 @@ def post_text(clip, meta: dict, default_hashtags=None) -> tuple[str, str, list]:
 async def make_post(d: dict, client) -> None:
     """Write the title/description with Gemini, then render the default 40 s Short and (via the renderer) upload it."""
     from ..clip_storage import read_words
-    from ..jobs import create_edit, enqueue_render
+    from ..jobs import JobError, create_edit, enqueue_render
     clip = db.get(db.Clip, d["clip_id"])
     if clip is None or clip.status != "ready":
         return
@@ -138,10 +138,26 @@ async def make_post(d: dict, client) -> None:
     db.update(db.Clip, clip.id, title=title[:200], hook=meta["hook"] or clip.hook, description=description,
               hashtags=tags)
     clip = db.get(db.Clip, clip.id)
-    e = create_edit(clip, {"start": clip.suggested_start, "end": clip.suggested_end, "title": title[:100],
-                           "description": description, "hashtags": tags,
-                           "hook": {"enabled": True, "text": meta["hook"] or clip.hook, "position": 0.14}}, auto=True)
-    enqueue_render(e.id, auto_upload=d["auto_upload"])
+    params = {"start": clip.suggested_start, "end": clip.suggested_end, "title": title[:100],
+              "description": description, "hashtags": tags, "auto_upload": d["auto_upload"] or "",
+              "hook": {"enabled": True, "text": meta["hook"] or clip.hook, "position": 0.14}}
+    # one automatic version per clip: a retried job reuses it instead of adding another copy
+    with db.session() as s:
+        e = next((x for x in s.scalars(select(db.Edit).where(db.Edit.clip_id == clip.id))
+                  if (x.params or {}).get("auto")), None)
+    if e is not None and e.status in ("queued", "rendering", "done"):
+        return
+    if e is None:
+        e = create_edit(clip, params, auto=True)
+    else:
+        db.update(db.Edit, e.id, params={**e.params, **params})
+    try:
+        enqueue_render(e.id, auto_upload=d["auto_upload"])
+    except JobError:
+        # render queue full: the renderer's feeder queues it as soon as there is room (oldest first)
+        db.update(db.Edit, e.id, status="waiting", error="waiting for a free place in the render queue")
+        rb.log_activity(clip.stream_id or "", f"Short \"{title[:60]}\" is waiting for the render queue")
+        return
     rb.log_activity(clip.stream_id or "", f"Short written: \"{title[:80]}\" – rendering, then uploading ({d['auto_upload']})")
 
 

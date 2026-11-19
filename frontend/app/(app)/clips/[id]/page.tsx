@@ -220,7 +220,7 @@ export default function EditorPage() {
           </div>
 
           <Card>
-            <CardHeader><CardTitle>Versions</CardTitle></CardHeader>
+            <CardHeader id="versions"><CardTitle>Versions</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               {(clip.edits ?? []).length === 0 && <p className="text-sm text-muted-foreground">Nothing rendered yet. The source clip is never changed; every export is a new version.</p>}
               {(clip.edits ?? []).map((e) => {
@@ -233,7 +233,7 @@ export default function EditorPage() {
                         <Button size="sm" variant="ghost" onClick={() => setP(structuredClone(e.params))} title="Load these settings">Load</Button>
                         {e.status === "done" && <Button size="sm" variant="ghost" onClick={() => setWatch(e)} title="Watch"><Play /></Button>}
                         {e.status === "done" && <Button size="sm" variant="ghost" asChild title="Download"><a href={`${e.file_url}?download=1`}><Download /></a></Button>}
-                        {e.status === "done" && <Button size="sm" variant="ghost" onClick={() => setUploadFor(e)} title="Upload to YouTube"><UploadIcon /></Button>}
+                        {e.status === "done" && !ups.some((u) => ["done", "uploading", "queued", "failed"].includes(u.status)) && <Button size="sm" variant="default" onClick={() => setUploadFor(e)} title="Upload to YouTube"><UploadIcon /> Upload</Button>}
                       </div>
                     </div>
                     {["queued", "rendering", "deferred"].includes(e.status) && <Progress value={e.progress} />}
@@ -241,11 +241,17 @@ export default function EditorPage() {
                     {e.status === "failed" && <p className="text-xs text-destructive">{e.error}</p>}
                     {e.status === "done" && <p className="text-xs text-muted-foreground">rendered in {e.render_seconds}s</p>}
                     {ups.map((u) => (
-                      <div key={u.id} className="flex items-center gap-2 text-xs">
+                      <div key={u.id} className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
                         <span className="text-muted-foreground">YouTube</span><StatusBadge status={u.status} />
                         {u.status === "uploading" && <Progress value={u.progress} className="h-1.5 w-24" />}
                         {u.youtube_video_id && <a className="text-primary" target="_blank" rel="noreferrer noopener" href={`https://youtu.be/${u.youtube_video_id}`}>{u.youtube_video_id}</a>}
-                        {u.status === "failed" && <><span className="truncate text-destructive" title={u.error}>{u.error}</span><Button size="sm" variant="ghost" onClick={async () => { await post(`/api/uploads/${u.id}/retry`); qc.invalidateQueries({ queryKey: ["clip", id] }); }}>Retry</Button></>}
+                        {u.status === "failed" && <>
+                          <Button size="sm" variant="default" className="ml-auto" onClick={async () => { try { await post(`/api/uploads/${u.id}/retry`); toast.success("Sent to YouTube again"); } catch (err) { toast.error(err instanceof Error ? err.message : "Could not start the upload"); } qc.invalidateQueries({ queryKey: ["clip", id] }); }}><UploadIcon /> Retry upload</Button>
+                          <Button size="sm" variant="outline" onClick={() => setUploadFor(e)} title="Change title, description or privacy, then upload">Edit &amp; upload</Button>
+                        </>}
+                      </div>
+                      {u.status === "failed" && <p className="text-xs text-destructive" title={u.error}>{u.error_short || u.error}</p>}
                       </div>
                     ))}
                   </div>

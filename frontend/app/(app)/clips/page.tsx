@@ -1,6 +1,6 @@
 "use client";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Clapperboard, ExternalLink, Lock, Play, Trash2, X } from "lucide-react";
+import { Check, Clapperboard, ExternalLink, Lock, Play, Trash2, Upload as UploadIcon, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
@@ -29,6 +29,19 @@ function Library() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [watching, setWatching] = useState<Clip | null>(null);
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const retryUpload = async (c: Clip) => {
+    setRetrying(c.id);
+    try {
+      await post(`/api/uploads/${c.failed_upload_id}/retry`);
+      toast.success("Sent to YouTube again. The status updates here in a minute.");
+      qc.invalidateQueries({ queryKey: ["clips"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not start the upload");
+    } finally {
+      setRetrying(null);
+    }
+  };
   const get = (k: string, d = "") => sp.get(k) ?? d;
   const setParam = (k: string, v: string) => {
     const p = new URLSearchParams(sp.toString());
@@ -119,9 +132,18 @@ function Library() {
               </div>
             </Link>
             {(c.short_url || c.youtube_url) && (
-              <div className="flex gap-2 border-t p-2">
-                {c.short_url && <Button size="sm" variant="secondary" className="flex-1" onClick={() => setWatching(c)}><Play /> Watch Short</Button>}
-                {c.youtube_url && <Button size="sm" variant="outline" className="flex-1" asChild><a href={c.youtube_url} target="_blank" rel="noreferrer noopener"><ExternalLink /> On YouTube</a></Button>}
+              <div className="space-y-1.5 border-t p-2">
+                <div className="flex flex-wrap gap-2">
+                  {c.short_url && <Button size="sm" variant="secondary" className="flex-1" onClick={() => setWatching(c)}><Play /> Watch Short</Button>}
+                  {c.youtube_url && <Button size="sm" variant="outline" className="flex-1" asChild><a href={c.youtube_url} target="_blank" rel="noreferrer noopener"><ExternalLink /> On YouTube</a></Button>}
+                  {!c.youtube_url && c.failed_upload_id && (
+                    <Button size="sm" className="flex-1" disabled={retrying === c.id} onClick={() => retryUpload(c)}><UploadIcon /> {retrying === c.id ? "Sending…" : "Upload to YouTube"}</Button>
+                  )}
+                  {!c.youtube_url && !c.failed_upload_id && c.short_url && ["none", "failed"].includes(c.upload_status) && (
+                    <Button size="sm" className="flex-1" asChild><Link href={`/clips/${c.id}#versions`}><UploadIcon /> Upload to YouTube</Link></Button>
+                  )}
+                </div>
+                {!c.youtube_url && c.upload_error && <p className="text-xs text-destructive">Last try failed: {c.upload_error}</p>}
               </div>
             )}
           </Card>
