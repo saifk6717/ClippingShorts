@@ -126,7 +126,8 @@ def make_helpers(src, out_dir, duration: float, cover_t: float) -> None:
              "-i", str(src), "-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "4", str(out_dir / "thumb.jpg")], 60)
         n = max(1, math.ceil(duration / SPRITE_EVERY))
         rows = math.ceil(n / SPRITE_COLS)
-        run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src), "-vf",
+        # keyframes only (every ~2 s on Twitch/YouTube): a sprite needs one picture per 2 s, not every frame decoded
+        run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-skip_frame", "nokey", "-i", str(src), "-vf",
              f"fps=1/{SPRITE_EVERY},scale={SPRITE_W}:-2,tile={SPRITE_COLS}x{rows}", "-frames:v", "1", "-q:v", "6",
              str(out_dir / "sprite.jpg")], 180)
         # waveform: 10 peaks per second from 8 kHz mono, decoded straight from the pipe (bounded: 5 min = 4.8 MB)
